@@ -52,7 +52,7 @@ private static class Entry<K,V> implements Map.Entry<K,V> {
 }
 ```
 
-`Entry` 实例连接在一起就可以构成单链表。
+`Entry` 实例连接在一起就构成了单链表。
 
 
 ### 2.1.2 `count` 字段
@@ -103,17 +103,21 @@ private transient int modCount = 0;
 
 ## 2.2 `Hashtable` 的创建以及增删查改的操作
 `Hashtable` 的 **创建** 是通过构造函数完成的，相关内容在 `2.2.1` 小节。   
-`Hashtable` 的 **增** 和 **改** 是由 `put(...)` 方法完成的，相关内容在 `2.2.2` 小节。   
+`Hashtable` 的 **增** 和 **改** 是通过 `put(...)` 方法完成的，相关内容在 `2.2.2` 小节。   
 `Hashtable` 的 **查** 是通过 `get(...)` 方法完成的，相关内容在 `2.2.3` 小节。   
 `Hashtable` 的 **删** 是通过 `remove(...)` 方法完成的，相关内容在 `2.2.4` 小节。   
 
-### 2.2.1 `Hashtable` 的创建逻辑
+`Hashtable` 的 增删查改 都涉及如下步骤
+1. 计算 `key` 对应的 `hash` 值
+2. 计算 `hash` 值对应的桶的下标(桶中要么是 `null`，要么就是一个单链表的头元素)
+3. 遍历第2步提到的单链表，查找与 `key` 匹配的 `Entry`
 
+### 2.2.1 `Hashtable` 的创建逻辑
 
 `Hashtable` 的构造函数有4个，具体如下
 1. 指定 `initialCapacity`(初始容量) 和 `loadFactor`(负载因子)
 
-`initialCapacity` 这个参数用于指定初始的桶数(也就是 `table` 数组中的 `length`)，`loadFactor` 用于计算何时进行扩容
+`initialCapacity` 这个参数用于指定初始的桶数(桶的数量等于 `table.length`)，`loadFactor` 用于计算阈值(阈值用于判定是否需要扩容)
 ```java
 public Hashtable(int initialCapacity, float loadFactor) {
     // initialCapacity 不能小于 0
@@ -127,8 +131,9 @@ public Hashtable(int initialCapacity, float loadFactor) {
     if (initialCapacity==0)
         initialCapacity = 1;
     this.loadFactor = loadFactor;
-    // table 中的元素个数(也就是桶的数量)刚好等于 initialCapacity
+    // table.length(也就是桶的数量)刚好等于 initialCapacity
     table = new Entry<?,?>[initialCapacity];
+    // 计算阈值
     threshold = (int)Math.min(initialCapacity * loadFactor, MAX_ARRAY_SIZE + 1);
 }
 ```
@@ -157,12 +162,12 @@ public Hashtable() {
 public Hashtable(Map<? extends K, ? extends V> t) {
     // 调用第一个构造函数，并保证 initialCapacity 足够大(这样在 putAll(t) 的时候，不会触发扩容)
     this(Math.max(2*t.size(), 11), 0.75f);
-    // 把 t 中的元素全都复制过来
+    // 把 t 中的元素全都 put 一次
     putAll(t);
 }
 ```
 
-### 2.2.2 `put(...)`
+### 2.2.2 `Hashtable` 中的 `put(...)` 方法
 ```java
 /**
  * Maps the specified <code>key</code> to the specified
@@ -191,9 +196,9 @@ public synchronized V put(K key, V value) {
     Entry<?,?> tab[] = table;
     int hash = key.hashCode();
     // 1. hash & 0x7FFFFFFF 的作用是保留 hash 的低 31 位(也就是将最高位清零)
-    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，那么 index 就是 key 对应的桶的下标
+    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，index 就是 key 对应的桶的下标
     int index = (hash & 0x7FFFFFFF) % tab.length;
-    // Hashtable 中使用拉链法(不涉及红黑树)来解决冲突。tab[index] 对应的桶是一个单链表的头元素，遍历这个单链表，如果在遍历时找到了匹配的 entry，则直接替换其 value。
+    // Hashtable 中使用拉链法(不涉及红黑树)来解决冲突。tab[index] 对应的桶是一个单链表的头元素，遍历这个单链表，如果在遍历时找到了匹配的 Entry，则直接替换其 value。
     @SuppressWarnings("unchecked")
     Entry<K,V> entry = (Entry<K,V>)tab[index];
     for(; entry != null ; entry = entry.next) {
@@ -211,10 +216,10 @@ public synchronized V put(K key, V value) {
 
 ```
 
-`addEntry(...)` 的核心逻辑是使用头插法将新元素放置在对应的单链表里
+`addEntry(...)` 的核心逻辑是使用头插法将新元素放置在某个单链表里
 ```java
 private void addEntry(int hash, K key, V value, int index) {
-    // Hashtable 将要发生一次结构性变化(新增一个 Entry)，所以计数值加一
+    // Hashtable 将要发生一次结构性变化(新增一个 Entry)，所以 modCount 加一
     modCount++;
 
     Entry<?,?> tab[] = table;
@@ -228,6 +233,7 @@ private void addEntry(int hash, K key, V value, int index) {
     }
 
     // Creates the new entry.
+    // 将新生成的 Entry 作为单链表的表头元素
     @SuppressWarnings("unchecked")
     Entry<K,V> e = (Entry<K,V>) tab[index];
     tab[index] = new Entry<>(hash, key, value, e);
@@ -262,22 +268,22 @@ protected void rehash() {
     // 新 Map 的容量(即桶的数量)=newCapacity
     Entry<?,?>[] newMap = new Entry<?,?>[newCapacity];
 
-    // Hashtable 将要发生一次结构性变化(桶中的 Entry 会重新组装一次)，所以计数值加一
+    // Hashtable 将要发生一次结构性变化(各个桶中的 Entry 实例会重新安置一次)，所以计数值加一
     modCount++;
     // 计算新的阈值。除极端情况外，新的阈值=newCapacity * loadFactor
     threshold = (int)Math.min(newCapacity * loadFactor, MAX_ARRAY_SIZE + 1);
     // 让 table 指向 newMap
     table = newMap;
 
-    // 外层循环的作用：对 oldMap 中的所有桶进行遍历处理
+    // 外层循环的作用：对 oldMap 中的所有桶进行遍历
     for (int i = oldCapacity ; i-- > 0 ;) {
         // 内层循环的作用：对单链表中的元素进行遍历(每个桶都对应一个单链表的表头元素)
         for (Entry<K,V> old = (Entry<K,V>)oldMap[i] ; old != null ; ) {
             Entry<K,V> e = old;
             old = old.next;
-            // 计算 e 应该放在 newMap 中的哪个桶
+            // 计算 e 应该放在 newMap 中的哪个桶中
             int index = (e.hash & 0x7FFFFFFF) % newCapacity;
-           // 用头插法将 e 放到 newMap 中
+           // 用头插法将 e 放到正确的桶中
             e.next = (Entry<K,V>)newMap[index];
             newMap[index] = e;
         }
@@ -285,12 +291,12 @@ protected void rehash() {
 }
 ```
 
-### 2.2.3 `remove(...)`
-删的逻辑比 增/改 的逻辑简单一点(因为不涉及扩容)，其核心步骤如下
+### 2.2.3 `Hashtable` 中的 `remove(...)` 方法
+**删** 的逻辑比 **增/改** 的逻辑简单一点(因为不涉及扩容)，其核心步骤如下
 1. 计算 key 对应的 hash 值
 2. 计算 hash 值对应的桶的下标(将下标值记为 index)
 3. 遍历 table[index] 对应的单链表，查找与 key 匹配的 `Entry`
-4. 如果有与 key 匹配的元素，则将那个元素删除
+4. 如果有与 key 匹配的 `Entry`，则将那个 `Entry` 从 `Hashtable` 中删除
 
 完整的代码如下
 
@@ -309,14 +315,14 @@ public synchronized V remove(Object key) {
     // 获取 key 对应的 hash 值
     int hash = key.hashCode();
     // 1. hash & 0x7FFFFFFF 的作用是保留 hash 的低 31 位(也就是将最高位清零)
-    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，那么 index 就是 key 对应的桶的下标
+    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，index 就是 key 对应的桶的下标
     int index = (hash & 0x7FFFFFFF) % tab.length;
     @SuppressWarnings("unchecked")
     Entry<K,V> e = (Entry<K,V>)tab[index];
     // for 循环的作用：遍历 e 对应的单链表，查找与 key 对应的元素(tab 中的每个元素都是单链表的表头，所以 e 也是一个单链表的表头)
     for(Entry<K,V> prev = null ; e != null ; prev = e, e = e.next) {
         if ((e.hash == hash) && e.key.equals(key)) {
-            // Hashtable 将要发生一次结构性变化(Entry 的数量会减一)，所以计数值加一
+            // Hashtable 将要发生一次结构性变化(Entry 的数量会减一)，所以 modCount 加一
             modCount++;
             // 如果 if 分支成立，则说明找到与 key 匹配的元素了
             if (prev != null) {
@@ -326,7 +332,7 @@ public synchronized V remove(Object key) {
                 // prev == null，说明这个单链表中与 key 对应的元素刚好是链表头 
                 tab[index] = e.next;
             }
-            // Hashtable 中的实例数减一
+            // Hashtable 中的 Entry 实例数减一
             count--;
             V oldValue = e.value;
             e.value = null;
@@ -338,8 +344,8 @@ public synchronized V remove(Object key) {
 }
 ```
 
-### 2.2.4 `get(...)`
-查询逻辑的核心步骤如下
+### 2.2.4 `Hashtable` 中的 `get(...)` 方法
+**查** 的逻辑，其核心步骤如下
 1. 计算 key 对应的 hash 值
 2. 计算 hash 值对应的桶的下标(将下标值记为 index)
 3. 遍历 table[index] 对应的单链表，查找与 key 匹配的 `Entry`
@@ -366,7 +372,7 @@ public synchronized V get(Object key) {
     // 获取 key 对应的 hash 值
     int hash = key.hashCode();
     // 1. hash & 0x7FFFFFFF 的作用是保留 hash 的低 31 位(也就是将最高位清零)
-    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，那么 index 就是 key 对应的桶的下标
+    // 2. 将 (hash & 0x7FFFFFFF) % tab.length 的值保存在 index 中，index 就是 key 对应的桶的下标
     int index = (hash & 0x7FFFFFFF) % tab.length;
     // for 循环的作用：遍历 e 对应的单链表，查找与 key 对应的元素(tab 中的每个元素都是单链表的头元素，所以 e 也是一个单链表的头元素)
     for (Entry<?,?> e = tab[index] ; e != null ; e = e.next) {
@@ -384,17 +390,61 @@ public synchronized V get(Object key) {
 # `Hashtable` 与 `HashMap` 的区别
 1. 对 `null` 的支持   
 ![Hashtable 的 key 和 value 都不允许为 null](pic/null.png)
-
-`Hashtable` 中 `key` 和 `value` 都不允许为 `null`(如果 `key` 为空，会在上图所示的 464 行抛空指针异常，如果 `value` 为空，会在 上图所示的 459 行抛空指针异常)，
+`Hashtable` 中 `key` 和 `value` 都不允许为 `null`(如果 `key` 为空，会在上图所示的 464 行抛空指针异常，如果 `value` 为空，会在 上图所示的 459 行抛空指针异常)。   
 `HashMap` 中 `key` 和 `value` 都可以为 `null`。
+`HashMap` 中的 `put(...)` 方法的代码如下
+```java
+/**
+ * Associates the specified value with the specified key in this map.
+ * If the map previously contained a mapping for the key, the old
+ * value is replaced.
+ *
+ * @param key key with which the specified value is to be associated
+ * @param value value to be associated with the specified key
+ * @return the previous value associated with <tt>key</tt>, or
+ *         <tt>null</tt> if there was no mapping for <tt>key</tt>.
+ *         (A <tt>null</tt> return can also indicate that the map
+ *         previously associated <tt>null</tt> with <tt>key</tt>.)
+ */
+public V put(K key, V value) {
+    return putVal(hash(key), key, value, false, true);
+}
+```
+`HashMap` 的 `put(...)` 方法中会调用 `hash(...)` 方法。`hash(...)` 方法的代码如下
+```java
+/**
+ * Computes key.hashCode() and spreads (XORs) higher bits of hash
+ * to lower.  Because the table uses power-of-two masking, sets of
+ * hashes that vary only in bits above the current mask will
+ * always collide. (Among known examples are sets of Float keys
+ * holding consecutive whole numbers in small tables.)  So we
+ * apply a transform that spreads the impact of higher bits
+ * downward. There is a tradeoff between speed, utility, and
+ * quality of bit-spreading. Because many common sets of hashes
+ * are already reasonably distributed (so don't benefit from
+ * spreading), and because we use trees to handle large sets of
+ * collisions in bins, we just XOR some shifted bits in the
+ * cheapest possible way to reduce systematic lossage, as well as
+ * to incorporate impact of the highest bits that would otherwise
+ * never be used in index calculations because of table bounds.
+ */
+static final int hash(Object key) {
+    int h;
+    return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+}
+```
+可见
+* 如果 key 为 `null`，则 `hash(...)` 方法的返回值为 0
+* 如果 key 不是 `null`，则 `hash(...)` 方法的返回值为 `key.hashCode() ^ key.hashCode()`
 
 
 2. 扩容   
-`HashMap` 中桶的数量始终是 2 的幂次，
-`Hashtable` 中桶的数量不需要是 2 的幂次。
+`HashMap` 中桶的数量始终是 2 的幂次，`Hashtable` 中桶的数量不需要是 2 的幂次。
 因为 `HashMap` 中桶的数量始终是 2 的幂次，所以 `HashMap` 在计算 kv 对所对应的桶下标时，就可以利用位运算来做到，而 `Hashtable` 中则是通过 `%` 来进行取余。`HashMap` 扩容时，`新的桶数=旧的桶数*2`，而 `Hashtable` 扩容时，`新的桶数=旧的桶数*2+1`(计算逻辑可以参考下图所示的 394 行)
 ![rehash.png](pic/rehash.png)
-如果使用 `Hashtable` 的无参构造函数，则 `Hashtable` 的初始桶数会是 `11`，第一次扩容后变为 `11*2+1=23`，第二次扩容后变为 `23*2+1=47`。令 `a[0]=11`, `a[i]` 表示第i次扩容后的桶数，则 `a[n+1] = 2*a[n] + 1`，所以 `a[n+1] + 1 = 2 * (a[n] + 1)`, 所以 `a[n] = (3*2^(n+2))-1`
+如果使用 `Hashtable` 的无参构造函数，则 `Hashtable` 的初始桶数会是 `11`，第一次扩容后变为 `11*2+1=23`，第二次扩容后变为 `23*2+1=47`。令 `a[0]=11`, `a[i]` 表示第i次扩容后的桶数，则 `a[n+1] = 2*a[n] + 1`，所以 `a[n+1] + 1 = 2 * (a[n] + 1)`, 所以 `a[n] = (3*2^(n+2))-1`。   
+我写了一个[简单的程序](HT.java)，可以用于观察 `Hashtable` 的结构以及它扩容前后的变化。其运行效果如下图
+![运行效果](pic/structure.png)
 
 3. 对 hash 碰撞的处理    
-`Hashtable` 中仅使用拉链法来处理碰撞(归属于于同一个桶的所有 `Entry` 会形成一个单链表)，而 `HashMap` 则会在一定情况下将链表转化为红黑树。所以当 hash 冲突很多时，`Hashtable` 的性能就会明显下降。
+`Hashtable` 中仅使用拉链法来处理碰撞(归属于同一个桶的所有 `Entry` 会形成一个单链表)，而 `HashMap` 则会在一定情况下将链表转化为红黑树。所以当 hash 冲突很多时，`Hashtable` 的性能就会明显下降。
